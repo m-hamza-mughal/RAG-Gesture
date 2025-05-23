@@ -1,9 +1,22 @@
 # RAG GESTURE BEATX
 
+Official Implementation for CVPR 2025 "Retrieving Semantics from the Deep: an RAG Solution for Gesture Synthesis"
+<br>
+RAG-Gesture BEATX is a framework for generating semantic-aware gestures using retrieval-augmented diffusion models.
+<br>
+The repository is still **Work in progress**
+
 ![RAG Gesture BEATX](./assets/TEASER.png)
 
-RAG-Gesture BEATX is a framework for generating semantic-aware gestures using retrieval-augmented diffusion models.
-The repository is still **Work in progress**
+### Citation
+```
+@InProceedings{mughal2024raggesture,
+	title = {Retrieving Semantics from the Deep: an RAG Solution for Gesture Synthesis},
+	author = {M. Hamza Mughal and Rishabh Dabral and Merel C. J. Scholman and Vera Demberg and Christian Theobalt},
+	booktitle={Computer Vision and Pattern Recognition (CVPR)},
+	year={2025}
+}
+```
 
 ## Installation
 ```
