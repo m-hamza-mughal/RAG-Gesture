@@ -11,6 +11,8 @@ conda create --name "raggesture" python=3.9
 conda activate raggesture
 pip install -r requirements.txt
 ```
+### Downloading Weights
+Download weights from [here](https://nextcloud.mpi-klsb.mpg.de/index.php/s/qQzdP6JY2ASyNWf) and place in `./experiments` directory
 
 ## Training the base model:
 ```
