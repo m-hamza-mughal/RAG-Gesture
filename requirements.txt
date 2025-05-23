@@ -1,0 +1,18 @@
+ftfy
+regex
+tqdm
+scipy
+matplotlib==3.3.1
+# git+https://github.com/openai/CLIP.git
+transformers
+librosa
+soundfile
+numpy<1.24 # due to fairseq
+fairseq==0.10.0
+pandas
+tensorboard
+smplx
+attrdict
+lmdb
+pyarrow==4.0.0
+termcolor
