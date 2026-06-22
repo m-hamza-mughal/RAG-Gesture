@@ -33,7 +33,7 @@ def parse_args():
     parser.add_argument(
         "--deps_path", 
         help="path to dependencies", 
-        default="/CT/GestureSynth1/work/GestureGPT/GestureRep/deps/" # TODO: change this before release
+        default="datasets/assets_deps/" 
         ) 
     
     parser.add_argument("--speaker_specific", type=str, default=None, help="speaker specific eval")

@@ -211,15 +211,11 @@ class RetrievalDatabase(nn.Module):
         self.dataset = dataset
 
         if new_lmdb_cache and os.path.exists(lmdb_paths):
-            breakpoint()
             shutil.rmtree(lmdb_paths)
             os.makedirs(lmdb_paths)
         elif not os.path.exists(lmdb_paths):
             os.makedirs(lmdb_paths)
-        
-        
 
-        
         self.idx_2_text = LMDBDict(os.path.join(lmdb_paths, "idx_2_text"), torch_converter=True)
         self.idx_2_sense = LMDBDict(os.path.join(lmdb_paths, "idx_2_sense"))
         self.idx_2_discbounds = LMDBDict(os.path.join(lmdb_paths, "idx_2_discbounds"))
@@ -227,8 +223,25 @@ class RetrievalDatabase(nn.Module):
         self.idx_2_prominence = LMDBDict(os.path.join(lmdb_paths, "idx_2_prominence"))
         self.idx_2_gestprom = LMDBDict(os.path.join(lmdb_paths, "idx_2_gestprom"))
 
-        # breakpoint()
-        if new_lmdb_cache:
+        # Auto-bootstrap: if any of the LMDBs is empty (e.g. fresh checkout),
+        # build the cache from the dataset even if new_lmdb_cache=False.
+        cache_is_empty = (
+            len(self.idx_2_text) == 0
+            or len(self.idx_2_sense) == 0
+            or len(self.idx_2_discbounds) == 0
+            or len(self.idx_2_gesture_labels) == 0
+            or len(self.idx_2_prominence) == 0
+            or len(self.idx_2_gestprom) == 0
+        )
+        if cache_is_empty and not new_lmdb_cache:
+            warnings.warn(
+                f"Retrieval LMDB cache at {lmdb_paths} is empty; building it "
+                "now by iterating the dataset. This is a one-time step — set "
+                "new_lmdb_cache=True in the config to force a rebuild later."
+            )
+        should_populate = new_lmdb_cache or cache_is_empty
+
+        if should_populate:
             print("Creating retrieval databases")
             for smp_idx, smp in tqdm(enumerate(dataset)):
                 # do random selection from self.idx_2_sense, self.idx_2_discbounds, self.idx_2_prominence, self.idx_2_text, idx_2_gesture_labels
@@ -241,41 +254,22 @@ class RetrievalDatabase(nn.Module):
                         if smp_idx == len(dataset) - 1: break
                         continue
 
-                # breakpoint()  # check the dataset
                 speaker_id = int(smp["speaker_id"][0].item())
-                # breakpoint()
-                if new_lmdb_cache or not os.path.exists(os.path.join(lmdb_paths, "idx_2_text")):
-                    self.idx_2_text[smp["sample_name"]] = (smp["text_feature"], speaker_id)
 
-                if new_lmdb_cache or not os.path.exists(os.path.join(lmdb_paths, "idx_2_sense")):
-                    self.idx_2_sense[smp["sample_name"]] = [speaker_id] + [(d[1], d[0]) for d in smp["discourse"]]  # speaker_id, sense, text
-                
-                if new_lmdb_cache or not os.path.exists(os.path.join(lmdb_paths, "idx_2_discbounds")):
-                    self.idx_2_discbounds[smp["sample_name"]] = [(d[1], d[0], d[4], d[5], d[6], d[7]) for d in smp["discourse"]]  # sense, text, disco_start, disco_end, conn_start, conn_end
+                self.idx_2_text[smp["sample_name"]] = (smp["text_feature"], speaker_id)
+                self.idx_2_sense[smp["sample_name"]] = [speaker_id] + [(d[1], d[0]) for d in smp["discourse"]]  # speaker_id, sense, text
+                self.idx_2_discbounds[smp["sample_name"]] = [(d[1], d[0], d[4], d[5], d[6], d[7]) for d in smp["discourse"]]  # sense, text, disco_start, disco_end, conn_start, conn_end
+                self.idx_2_gesture_labels[smp["sample_name"]] = [speaker_id] + smp["gesture_labels"]
 
-                if new_lmdb_cache or not os.path.exists(os.path.join(lmdb_paths, "idx_2_gesture_labels")):
-                    self.idx_2_gesture_labels[smp["sample_name"]] = [speaker_id] + smp["gesture_labels"]
-                
-
-                # filter out the relevant prominance values according to
+                # filter out the relevant prominence values according to
                 # the connectives in disco conns
-                # breakpoint()  # check following code
-                if new_lmdb_cache or not os.path.exists(os.path.join(lmdb_paths, "idx_2_prominence")):
-                    smp_conns = []
-                    for disco in smp["discourse"]:
-                        smp_conns.append(disco[0])
-                    relevant_dps = map_conns_to_prominence(smp_conns, smp["prominence"])
+                smp_conns = [disco[0] for disco in smp["discourse"]]
+                relevant_dps = map_conns_to_prominence(smp_conns, smp["prominence"])
+                self.idx_2_prominence[smp["sample_name"]] = relevant_dps
 
-                    # if len(relevant_dps) > 1 and relevant_dps[0] is not None:
-                    #     if "." in relevant_dps[0][0]:
-                    #         breakpoint()
-
-                    self.idx_2_prominence[smp["sample_name"]] = relevant_dps
-
-                if new_lmdb_cache or not os.path.exists(os.path.join(lmdb_paths, "idx_2_gestprom")):
-                    smp_gest_words = [s["word"] for s in smp["gesture_labels"]]
-                    relevant_gest_dps = map_conns_to_prominence(smp_gest_words, smp["prominence"])
-                    self.idx_2_gestprom[smp["sample_name"]] = relevant_gest_dps
+                smp_gest_words = [s["word"] for s in smp["gesture_labels"]]
+                relevant_gest_dps = map_conns_to_prominence(smp_gest_words, smp["prominence"])
+                self.idx_2_gestprom[smp["sample_name"]] = relevant_gest_dps
 
                 if smp_idx == len(dataset) - 1:
                     
@@ -621,8 +615,9 @@ class RetrievalDatabase(nn.Module):
 
                     query_lat_start = query_start // self.motion_framechunksize
                     query_lat_end = query_end // self.motion_framechunksize + 1
-                    if query_lat_start >= query_lat_end:
-                        breakpoint() # check wth happened here
+                    # if query_lat_start >= query_lat_end:
+                    #     breakpoint() # check wth happened here
+                    assert query_lat_start < query_lat_end
                     
                     # 0.6 before and 0.3 sec after the stroke. 
                     # currently assuming stroke in the middle. 

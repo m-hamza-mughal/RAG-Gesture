@@ -55,33 +55,28 @@ def parse_args():
     parser.add_argument(
         "--deps_path", 
         help="path to dependencies", 
-        default="/CT/GestureSynth1/work/GestureGPT/GestureRep/deps/" # TODO: change this before release
+        default="datasets/assets_deps/" # 
         ) 
     parser.add_argument(
         "--dataset_path",
         help="path to the dataset which contains eval_model and vel_path",
-        default="/CT/GestureSynth1/work/GestureGPT/PantoMatrix/BEAT2/beat_english_v2.0.0/" #TODO: change this before release
+        default="datasets/beat_english_v2.0.0/" #
     )
     parser.add_argument(
         "--e_path", 
         help="relative path to the model weights", 
-        default="weights/AESKConv_240_100.bin" # TODO: change this before release
+        default="datasets/beat_english_v2.0.0/weights/AESKConv_240_100.bin" 
     )
     parser.add_argument(
         "--avg_vel_path", 
         help="relative path to average velocity file", 
         default="weights/mean_vel_smplxflame_30.npy"
     )
-    parser.add_argument(
-        "--test_cfg",
-        help="path to the test config file",
-        default="/CT/GestureSynth1/work/GestureGPT/PantoMatrix/BEAT2/beat_english_v2.0.0/beat_test_cfg.py" # TODO: change this before release
-    )
     parser.add_argument("--speaker_specific", type=str, default=None, help="speaker specific eval")
     
     parser.add_argument("--eval_n", help="number of evaluation frames", type=int, default=300) 
 
-    parser.add_argument("--calculate_srgr", help="calculate srgr", action="store_true")
+    
     
     args = parser.parse_args()
 
@@ -137,10 +132,10 @@ class Evaluator:
 
         self.mpjpe_calculator = metric.MPJPE()
 
-        if args.calculate_srgr:
-            self.test_cfg = mmcv.Config.fromfile(args.test_cfg)
-            self.test_dataset = build_dataset(self.test_cfg.data.test)
-            self.srgr_calculator = metric.SRGR(threshold=0.3, joints=55) 
+        # if args.calculate_srgr:
+        #     self.test_cfg = mmcv.Config.fromfile(args.test_cfg)
+        #     self.test_dataset = build_dataset(self.test_cfg.data.test)
+        #     self.srgr_calculator = metric.SRGR(threshold=0.3, joints=55) 
             
             
 
@@ -359,102 +354,19 @@ class Evaluator:
             if retrieval is not None:
                 joints_retrieval = vertices_retrieval["joints"].detach().cpu().numpy().reshape(1, n, 127*3)[0, :n, :55*3]
             
-            # facial_rec = vertices_rec_face['vertices'].reshape(1, n, -1)[0, :n]
-            # facial_tar = vertices_tar_face['vertices'].reshape(1, n, -1)[0, :n]
-            # face_vel_loss = self.vel_loss(facial_rec[1:, :] - facial_tar[:-1, :], facial_tar[1:, :] - facial_tar[:-1, :])
-            # l2 = self.reclatent_loss(facial_rec, facial_tar)
-            # l2_all += l2.item() * n
-            # lvel += face_vel_loss.item() * n
-
-            # breakpoint()
-            # self.l1_calculator.run(joints_rec.copy())
-            # self.gt_l1_calculator.run(joints_tar.copy())
+            
 
             joints_rec_rootnorm = joints_rec.reshape(n, 55, 3).copy()
             joints_rec_rootnorm = joints_rec_rootnorm - joints_rec_rootnorm[:1, :1]
 
             joints_tar_rootnorm = joints_tar.reshape(n, 55, 3).copy()
             joints_tar_rootnorm = joints_tar_rootnorm - joints_tar_rootnorm[:1, :1]
-            # if retrieval is not None:
-            #     # breakpoint()
-                
-            #     joints_retrieval = joints_retrieval.reshape(n, 55, 3).copy()
-
-            #     # start from the origin (relative to the first frame)
-                
-            #     joints_retrieval = joints_retrieval - joints_retrieval[:1, :1]
-
-            #     mpjpe_mask = mpjpe_mask.cpu().numpy()
-            #     mpjpe_for_pred = self.mpjpe_calculator.compute_error(joints_rec_rootnorm, joints_retrieval, mpjpe_mask)
-
+            
 
             
             pred_all.append(joints_rec_rootnorm[np.newaxis, :])
             gt_all.append(joints_tar_rootnorm[np.newaxis, :])
-            # pred_all.append(joints_rec[np.newaxis, :])
-            # gt_all.append(joints_tar[np.newaxis, :])
             
-            # if self.alignmenter is not None:
-            #     in_audio_eval = audio
-            #     # breakpoint() # should be 130133/16000 = 8.13 seconds
-            #     in_audio_eval = in_audio_eval[:int(self.args.audio_sr / self.args.pose_fps*n)]
-            #     a_offset = int(self.align_mask * (self.args.audio_sr / self.args.pose_fps))
-            #     onset_bt = self.alignmenter.load_audio(
-            #         in_audio_eval, 
-            #         a_offset, 
-            #         len(in_audio_eval)-a_offset, 
-            #         True)
-            #     beat_vel = self.alignmenter.load_pose(joints_rec, self.align_mask, n-self.align_mask, 30, True)
-            #     gt_beat_vel = self.alignmenter.load_pose(joints_tar, self.align_mask, n-self.align_mask, 30, True)
-            #     # print(beat_vel)
-            #     align += (self.alignmenter.calculate_align(onset_bt, beat_vel, 30) * (n-2*self.align_mask))
-            #     gt_align += (self.alignmenter.calculate_align(onset_bt, gt_beat_vel, 30) * (n-2*self.align_mask))
-
-
-            # if self.args.calculate_srgr:
-            #     # breakpoint()
-            #     data_sample = self.test_dataset[data_idx]
-            #     tar_sem = data_sample["sem_score"].unsqueeze(0).unsqueeze(0) #.to(self.args.device)
-            #     if self.test_cfg.motion_fps != 30:
-            #         assert 30 % self.test_cfg.motion_fps == 0
-            #         # tar_sem = tar_sem.repeat(1, 1, 30//self.test_cfg.motion_fps, 1)
-            #         tar_sem = torch.nn.functional.interpolate(
-            #             tar_sem, scale_factor=30/self.test_cfg.motion_fps, mode='linear')
-                    
-            #     tar_sem = tar_sem.squeeze(0).squeeze(0)
-                
-
-            #     _ = self.srgr_calculator.run(joints_rec, joints_tar, tar_sem.cpu().numpy())
-            
-            # total_length += n
-            # done_count += 1
-
-        # print(f"l2 loss: {l2_all/total_length}")
-        # print(f"lvel loss: {lvel/total_length}")
-
-        # latent_out_all = np.concatenate(latent_out, axis=0)
-        # latent_ori_all = np.concatenate(latent_ori, axis=0)
-        # fid = metric.FIDCalculator.frechet_distance(latent_out_all, latent_ori_all)
-        # print(f"fid score: {fid}")
-        
-        # align_avg = align/(total_length-2*done_count*self.align_mask)
-        # gt_align_avg = gt_align/(total_length-2*done_count*self.align_mask)
-        # print(f"align score: {align_avg}")
-        # print(f"gt align score: {gt_align_avg}")
-
-        # l1div = self.l1_calculator.avg()
-        # print(f"l1div score: {l1div}")
-
-        # if self.args.calculate_srgr:
-        #     srgr = self.srgr_calculator.avg()
-        #     print(f"srgr score: {srgr}")
-
-        # gt_l1div = self.gt_l1_calculator.avg()
-        # print(f"gt l1div score: {gt_l1div}")
-
-        # # if retrieval is not None:
-        # mpjpe = self.mpjpe_calculator.get_average_error()
-        # print(f"mpjpe score: {mpjpe}")
 
         pred_all = np.concatenate(pred_all, axis=0)
         gt_all = np.concatenate(gt_all, axis=0)

@@ -7,6 +7,7 @@ import re
 import copy
 import time
 import random
+import warnings
 
 from .utils import sort_sidx_by_textsimilarity, get_word_similarity_score, map_conns_to_prominence
 
@@ -54,7 +55,16 @@ Format your response as a python list of python tuples of (word, type). For exam
 """
 load_dotenv()
 openai_api_key = os.getenv("OPENAI_API_KEY")
-client = OpenAI(api_key=openai_api_key)
+if not openai_api_key:
+    warnings.warn(
+        "OPENAI_API_KEY is not set. LLM-guided retrieval "
+        "(`--retrieval_method llm_guidance_test`) will fail at call time. "
+        "Set OPENAI_API_KEY to enable it; other retrieval methods "
+        "(discourse, gesture_type) and training work without it."
+    )
+    client = None
+else:
+    client = OpenAI(api_key=openai_api_key)
 
 def get_llm_output(text, model="gpt-4o-mini"):
     if model == "gpt-4o-mini":
@@ -65,6 +75,11 @@ def get_llm_output(text, model="gpt-4o-mini"):
 
 
 def call_gpt_4o_mini(text):
+    if client is None:
+        raise RuntimeError(
+            "OpenAI client is not initialized because OPENAI_API_KEY is not "
+            "set. Export OPENAI_API_KEY to use the LLM retrieval method."
+        )
     completion = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[

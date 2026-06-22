@@ -11,7 +11,7 @@ from mogen.datasets import build_dataset, build_dataloader
 from mogen.apis import set_random_seed
 import soundfile as sf
 from mmcv.runner import get_dist_info, init_dist
-from mogen.utils import collect_env, str2bool
+from mogen.utils import collect_env, str2bool, render_gt_pred_side_by_side
 from transformers import AutoTokenizer, AutoModel
 from mogen.models.utils import rotation_conversions as rc
 
@@ -34,6 +34,8 @@ def parse_args():
     parser.add_argument("--guidance_iters", help="list of number of iterations at each diffusion timestep to use the guidance", type=str, default="all_one")
     parser.add_argument("--guidance_lr", help="learning rate for the guidance", type=float, default=0.1)
     parser.add_argument("--test_batchsize", help="batch size for testing", type=int, default=1)
+    parser.add_argument("--no_render_video", help="disable mp4 rendering (only save npz)", action="store_true")
+    parser.add_argument("--render_fps", help="fps for rendered mp4s; defaults to 30 (matches the interpolated output)", type=int, default=30)
     # parser.add_argument('--pose_npy', help='output pose sequence file', default=None)
     parser.add_argument("--seed", type=int, default=None, help="random seed")
     parser.add_argument(
@@ -150,11 +152,6 @@ def main():
     cfg.seed = args.seed
     meta["seed"] = args.seed
 
-    # breakpoint()
-    # build the dataloader
-    # cfg.data.train.training_speakers = list(range(1, 31))
-    # cfg.data.train.cache_path = "/CT/GestureSynth1/work/DiscourseAwareGesture/RAGGesture_BEATX/cache/beatx_cache_backup/"
-    # cfg.model.model.retrieval_cfg.lmdb_paths = cfg.model.model.retrieval_cfg.lmdb_paths.replace("_spk2", "")
     
     
     data_bert_tokenizer = AutoTokenizer.from_pretrained("bert-base-cased",
@@ -199,8 +196,11 @@ def main():
     # assert dataset_name == ""
     #
     # breakpoint()
-    # cfg.data.test.training_speakers = [2]   
-    breakpoint()
+    # cfg.data.test.training_speakers = [2]
+    # Longform synthesis stitches its own per-window outputs across the full
+    # clip, so it needs each test sample to be the full source clip rather
+    # than fixed 150-frame windows. Pin the dataset's test cache mode.
+    cfg.data.test.test_cache_mode = "full"
     test_dataset = build_dataset(cfg.data.test)
 
     body_upper_mask = test_dataset.upper_mask
@@ -785,9 +785,26 @@ def main():
             encoding="utf-8",
         ) as f:
             f.write(data["raw_word"][0])
-        sf.write(
-            osp.join(exp_dir, gt_sample_name, "gt_audio.wav"), ori_audio.numpy()[0], 16000
-        )
+        full_audio_path = osp.join(exp_dir, gt_sample_name, "gt_audio.wav")
+        sf.write(full_audio_path, ori_audio.numpy()[0], 16000)
+
+        if not args.no_render_video:
+            try:
+                render_gt_pred_side_by_side(
+                    smplx_model=test_dataset.smplx,
+                    gt_poses=gt_sample_motion,
+                    gt_transl=gt_sample_transl,
+                    gt_expressions=gt_sample_facial,
+                    pred_poses=pred_sample_motion,
+                    pred_transl=pred_sample_transl,
+                    pred_expressions=pred_sample_facial,
+                    betas=None,
+                    output_path=osp.join(exp_dir, gt_sample_name, "full_gt_vs_pred.mp4"),
+                    fps=args.render_fps,
+                    audio_path=full_audio_path,
+                )
+            except Exception as exc:
+                print(f"[render] full_gt_vs_pred failed for {gt_sample_name}: {exc}")
         # break
 
 

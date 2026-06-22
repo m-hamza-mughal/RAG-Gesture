@@ -25,7 +25,7 @@ custom_hooks = [
     # dict(type="BERT_FreezeHook"),
     dict(
         type="DatabaseSaveHook",
-        save_dir="/CT/GestureSynth1/work/DiscourseAwareGesture/RAGGesture_BEATX/experiments/retrieval_dicts_spk2",
+        save_dir="experiments/retrieval_dicts_spk2",
     ),
 ]
 
@@ -60,14 +60,6 @@ model = dict(
             dropout=dropout,
             time_embed_dim=time_embed_dim, # IMPORTANT TO SET THIS
         ),
-        # ca_block_cfg=dict(
-        #     type="SemanticsModulatedAttention",
-        #     latent_dim=latent_dim,
-        #     text_latent_dim=latent_dim,
-        #     num_heads=num_heads,
-        #     dropout=dropout,
-        #     time_embed_dim=time_embed_dim,
-        # ),
         ca_block_cfg=dict(
             type="EfficientCrossAttention",
             latent_dim=latent_dim,
@@ -83,12 +75,10 @@ model = dict(
             time_embed_dim=time_embed_dim,
         ),
         vae_cfg=dict(
-            upper_cfg = "/CT/GestureSynth1/work/GestureGPT/GestureRep/experiments/0903_020101_gesture_lexicon_transformer_vae_upper_allspk_len256_l8h4_fchunksize15/0903_020101_gesture_lexicon_transformer_vae_upper_allspk_len256_l8h4_fchunksize15.yaml",
-            # lower_cfg = "/CT/GestureSynth1/work/GestureGPT/GestureRep/experiments/0909_131733_gesture_lexicon_transformer_vae_lower_allspk_len10s_l8h4_fchunksize15/0909_131733_gesture_lexicon_transformer_vae_lower_allspk_len10s_l8h4_fchunksize15.yaml",
-            lowertrans_cfg = "/CT/GestureSynth1/work/GestureGPT/GestureRep/experiments/1031_142417_gesture_lexicon_transformer_vae_lowerplustrans_allspk_len10s_l8h8_fchunksize15_run2/1031_142417_gesture_lexicon_transformer_vae_lowerplustrans_allspk_len10s_l8h8_fchunksize15_run2.yaml",
-            face_cfg = "/CT/GestureSynth1/work/GestureGPT/GestureRep/experiments/0909_130750_gesture_lexicon_transformer_vae_face_allspk_len10s_l8h4_fchunksize15/0909_130750_gesture_lexicon_transformer_vae_face_allspk_len10s_l8h4_fchunksize15.yaml",
-            hands_cfg = "/CT/GestureSynth1/work/GestureGPT/GestureRep/experiments/0909_132647_gesture_lexicon_transformer_vae_hands_allspk_len10s_l8h4_fchunksize15/0909_132647_gesture_lexicon_transformer_vae_hands_allspk_len10s_l8h4_fchunksize15.yaml",
-            # transl_cfg = "/CT/GestureSynth1/work/GestureGPT/GestureRep/experiments/1001_173313_gesture_lexicon_transformer_vae_trans_allspk_len10s_l8h8_fchunksize15_xznorm_ldim512_lowkl/1001_173313_gesture_lexicon_transformer_vae_trans_allspk_len10s_l8h8_fchunksize15_xznorm_ldim512_lowkl.yaml",
+            upper_cfg = "experiments/vae/0903_020101_gesture_lexicon_transformer_vae_upper_allspk_len256_l8h4_fchunksize15/0903_020101_gesture_lexicon_transformer_vae_upper_allspk_len256_l8h4_fchunksize15.yaml",
+            lowertrans_cfg = "experiments/vae/1031_142417_gesture_lexicon_transformer_vae_lowerplustrans_allspk_len10s_l8h8_fchunksize15_run2/1031_142417_gesture_lexicon_transformer_vae_lowerplustrans_allspk_len10s_l8h8_fchunksize15_run2.yaml",
+            face_cfg = "experiments/vae/0909_130750_gesture_lexicon_transformer_vae_face_allspk_len10s_l8h4_fchunksize15/0909_130750_gesture_lexicon_transformer_vae_face_allspk_len10s_l8h4_fchunksize15.yaml",
+            hands_cfg = "experiments/vae/0909_132647_gesture_lexicon_transformer_vae_hands_allspk_len10s_l8h4_fchunksize15/0909_132647_gesture_lexicon_transformer_vae_hands_allspk_len10s_l8h4_fchunksize15.yaml",
             latent_dim=latent_dim,
             frame_chunk_size=frame_chunk_size,
         ),
@@ -105,7 +95,6 @@ model = dict(
             latent_dim=inp_text_latent_dim,
             num_layers=0, #2, # no transformer layers
             dropout=0.1,
-            # cp_path="/CT/GroupGesture/work/DiscourseAwareGesture/fairseq/weights/wav2vec_large.pt",
         ),
         speaker_embedding=dict(num_speakers=1), # beatx has 25 speakers instead of 30
         retrieval_train=False,
@@ -117,7 +106,6 @@ model = dict(
             num_motion_layers=2,
             kinematic_coef=0.1,
             topk=2,
-            # retrieval_file='data/database/t2m_text_train.npz',
             latent_dim=latent_dim,
             text_latent_dim=inp_text_latent_dim,
             output_dim=latent_dim,
@@ -127,7 +115,7 @@ model = dict(
             num_heads=num_heads,
             ff_size=ff_size,
             dropout=dropout,
-            lmdb_paths="/scratch/inf0/user/mmughal/DiscourseAwareGesture/retrieval_cache_stratified_spk2/",
+            lmdb_paths="experiments/retrieval_cache_stratified_spk2/",
             new_lmdb_cache=False,
             stratified_db_creation=True,
             stratification_interval=15, # (max_seq_len // data_stride) // 2) = 150 // 5 // 2 = 15
@@ -148,15 +136,7 @@ model = dict(
         ),
     ),
     loss_recon=dict(type="MSELoss", loss_weight=1, reduction="none"),
-    # body_part_lossweights=dict(upper=1.0,lower=1.0,hands=1.0,face=1.0,transl=1.0),
     body_part_lossweights=dict(upper=1.0,hands=1.0,face=1.0,lowertransl=1.0),
-    # loss_contact=dict(type="MSELoss", loss_weight=10, reduction="none"),
-    # loss_gen=dict(
-    #     type="MSELoss",
-    #     loss_weight=1,
-    #     reduction="none",
-    # ),
-    # genloss_smooth=False,
     diffusion_train=dict(
         beta_scheduler="scaled_linear",
         diffusion_steps=1000,

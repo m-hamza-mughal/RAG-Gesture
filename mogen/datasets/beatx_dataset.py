@@ -57,6 +57,15 @@ class BEATXDataset(data.Dataset):
         self.args = AttrDict(kwargs)
         self.logger = get_root_logger()
 
+        # Test-time cache layout selector. Two scripts need incompatible test
+        # samples: visualize.py / evaluate.py want fixed-length 150-frame
+        # windows, while longform_synthesis.py needs the full clip as a single
+        # variable-length sample. Tag the on-disk cache so both can coexist.
+        self.test_cache_mode = self.args.get("test_cache_mode", "windowed")
+        assert self.test_cache_mode in ("windowed", "full"), (
+            f"test_cache_mode must be 'windowed' or 'full', got {self.test_cache_mode}"
+        )
+
         # self.rank = dist.get_rank()
         self.ori_stride = self.args.stride
         self.ori_length = self.args.pose_length
@@ -158,7 +167,10 @@ class BEATXDataset(data.Dataset):
             # self.args.new_cache = True
         
         # breakpoint()
-        preloaded_dir = self.args.cache_path + loader_type + f"/{self.args.pose_rep}_cache" 
+        cache_subdir = loader_type
+        if loader_type == "test":
+            cache_subdir = f"{loader_type}_{self.test_cache_mode}"
+        preloaded_dir = self.args.cache_path + cache_subdir + f"/{self.args.pose_rep}_cache"
 
         # if self.args.beat_align: # TODO: Figure out what to do with thuis. 
         #     breakpoint()
@@ -646,6 +658,7 @@ class BEATXDataset(data.Dataset):
                 #print(sem_each_file)
 
             if self.args.prom_rep is not None:
+                self.logger.info(f"# ---- Building cache for Prominence    {id_pose} and Pose {id_pose} ---- #")
                 prominence_path = f"{self.data_dir}prom/{id_pose}.prom"
                 prom_data = pd.read_csv(
                     prominence_path,
@@ -737,13 +750,20 @@ class BEATXDataset(data.Dataset):
         
         
         ratio = 1.0 # multi length training is not used
-        if is_test:# stride = motion length for test
-            cut_length = clip_e_f_pose - clip_s_f_pose
-            self.args.stride = cut_length
-            self.max_length = cut_length
-            # cut_length = int(self.ori_length*ratio)
-            # self.args.stride = int(self.ori_length*ratio)
-            # self.max_length = int(self.ori_length*ratio)
+        if is_test:
+            if self.test_cache_mode == "full":
+                # one full-clip sample per file; used by longform_synthesis.py
+                # which does its own per-window stitching at inference time.
+                cut_length = clip_e_f_pose - clip_s_f_pose
+                self.args.stride = cut_length
+                self.max_length = cut_length
+            else:
+                # fixed-length windows (matches train); used by visualize.py
+                # and evaluate.py where the model's retrieval buffer is sized
+                # to max_seq_len.
+                cut_length = int(self.ori_length*ratio)
+                self.args.stride = int(self.ori_length*ratio)
+                self.max_length = int(self.ori_length*ratio)
         else:
             self.args.stride = int(ratio*self.ori_stride)
             cut_length = int(self.ori_length*ratio)
@@ -826,6 +846,14 @@ class BEATXDataset(data.Dataset):
                 if "bert" in self.args.word_rep:
                     word_list = [w[1] for w in sample_textsegs] # check consistency b/w sample_word and sample_textsegs
                     sample_word_vecs, sample_textfeature = self.bert_extract_word_embeddings(sample_word)
+                    if sample_word_vecs is None:
+                        self.logger.warning(
+                            f"Skipping subdivision {i} of {f_name}: BERT tokenization "
+                            f"exceeds max_position_embeddings ({self.bert_model.config.max_position_embeddings}). "
+                            f"Sentence had {len(sample_word.split())} words."
+                        )
+                        n_filtered_out["bert_too_long"] += 1
+                        continue
 
                     if self.args.word_rep == "bert_framealigned":
                         # breakpoint() # check the shape of sample_word_vecs
@@ -1132,8 +1160,11 @@ class BEATXDataset(data.Dataset):
             assert len(word_vecs) == len(sent_words)
             return word_vecs
         
-        # breakpoint() # go through this 
+        # breakpoint() # go through this
         encoded = self.bert_tokenizer.encode_plus(sentence, return_tensors="pt").to("cuda")
+        max_pos = self.bert_model.config.max_position_embeddings
+        if encoded["input_ids"].shape[1] > max_pos:
+            return None, None
         with torch.no_grad():
             output = self.bert_model(**encoded)
         # Get all hidden states
@@ -1168,17 +1199,17 @@ class BEATXDataset(data.Dataset):
             else:
                 tar_pose, tar_upper, tar_face, tar_lower, tar_hands, in_audio, in_audenc, in_facial, in_shape, in_word, in_word_enc, in_textf, disco, textsegs, emo, sem, semscore, vid, trans, prom, f_name = sample
 
-            #print(in_shape)
-            #vid = torch.from_numpy(vid).int()
-            emo = torch.from_numpy(emo).int()
-            sem = torch.from_numpy(sem).float() if self.args.sem_rep == "score" else sem
-            # in_audio = torch.from_numpy(in_audio).float() 
-            in_audenc = torch.from_numpy(in_audenc).float()
-            # in_word = torch.from_numpy(in_word).float() 
-            in_word_enc = torch.from_numpy(in_word_enc).float() 
-            in_textf = torch.from_numpy(in_textf).float()
+            # .copy() on every numpy array so the resulting tensors own their
+            # storage; otherwise they'd alias the LMDB-mmapped pyarrow buffer,
+            # which is non-resizable and breaks DataLoader's worker IPC
+            # ("Trying to resize storage that is not resizable").
+            emo = torch.from_numpy(emo.copy()).int()
+            sem = torch.from_numpy(sem.copy()).float() if self.args.sem_rep == "score" else sem
+            in_audenc = torch.from_numpy(in_audenc.copy()).float()
+            in_word_enc = torch.from_numpy(in_word_enc.copy()).float()
+            in_textf = torch.from_numpy(in_textf.copy()).float()
 
-            semscore = torch.from_numpy(semscore).float() 
+            semscore = torch.from_numpy(semscore.copy()).float()
             # if self.loader_type == "test":
             #     # print("test")
             #     # print(tar_pose.shape, trans.shape, in_facial.shape)
@@ -1195,20 +1226,29 @@ class BEATXDataset(data.Dataset):
             # else:
             #     # print("train")
             #     # print(tar_pose.shape, trans.shape, in_facial.shape, vid.shape)
-            in_shape = torch.from_numpy(in_shape).reshape((in_shape.shape[0], -1)).float()
-            trans = torch.from_numpy(trans).reshape((trans.shape[0], -1)).float()
-            vid = torch.from_numpy(vid).reshape((vid.shape[0])).long()
-            in_facial = torch.from_numpy(in_facial).reshape((in_facial.shape[0], -1)).float()
+            in_shape = torch.from_numpy(in_shape.copy()).reshape((in_shape.shape[0], -1)).float()
+            trans = torch.from_numpy(trans.copy()).reshape((trans.shape[0], -1)).float()
+            vid = torch.from_numpy(vid.copy()).reshape((vid.shape[0])).long()
+            in_facial = torch.from_numpy(in_facial.copy()).reshape((in_facial.shape[0], -1)).float()
 
-            tar_pose = torch.from_numpy(tar_pose).reshape((tar_pose.shape[0], -1)).float()
-            tar_upper = torch.from_numpy(tar_upper).reshape((tar_upper.shape[0], -1)).float()
-            tar_face = torch.from_numpy(tar_face).reshape((tar_face.shape[0], -1)).float()
-            tar_lower = torch.from_numpy(tar_lower).reshape((tar_lower.shape[0], -1)).float()
-            tar_hands = torch.from_numpy(tar_hands).reshape((tar_hands.shape[0], -1)).float()
+            tar_pose = torch.from_numpy(tar_pose.copy()).reshape((tar_pose.shape[0], -1)).float()
+            tar_upper = torch.from_numpy(tar_upper.copy()).reshape((tar_upper.shape[0], -1)).float()
+            tar_face = torch.from_numpy(tar_face.copy()).reshape((tar_face.shape[0], -1)).float()
+            tar_lower = torch.from_numpy(tar_lower.copy()).reshape((tar_lower.shape[0], -1)).float()
+            tar_hands = torch.from_numpy(tar_hands.copy()).reshape((tar_hands.shape[0], -1)).float()
                 
-            # seperate out contacts from pose
-            tar_contact = tar_pose[:, -4:]
-            tar_pose = tar_pose[:, :-4]
+            # raw_audio is a plain numpy array from the LMDB buffer and goes
+            # through collate() in beatx_collate_fn -> torch.as_tensor would
+            # alias the non-resizable storage. Copy it so the eventual tensor
+            # owns its memory.
+            in_audio = in_audio.copy()
+
+            # seperate out contacts from pose. .clone() so the slices own their
+            # storage; otherwise the views inherit the parent storage size,
+            # which doesn't match their numel and trips DataLoader's collate
+            # (storage._new_shared would need to shrink and can't).
+            tar_contact = tar_pose[:, -4:].clone()
+            tar_pose = tar_pose[:, :-4].clone()
 
             m_length = tar_pose.shape[0]
             motion_mask = torch.ones(m_length)

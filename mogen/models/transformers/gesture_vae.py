@@ -9,17 +9,6 @@ from torch import Tensor, nn
 from torch.distributions.distribution import Distribution
 from collections import OrderedDict
 
-# import sys
-# import os
-
-# SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-# sys.path.append(os.path.dirname(SCRIPT_DIR))
-# sys.path.append(
-#     "/CT/GestureSynth1/work/DiscourseAwareGesture/RAGGesture_BEATX/mogen/models/utils"
-# )
-# sys.path.append(
-#     "/CT/GestureSynth1/work/DiscourseAwareGesture/RAGGesture_BEATX/mogen/models/transformers"
-# )
 
 from ..utils.detr_utils import (
     TransformerEncoderLayer,
@@ -250,44 +239,3 @@ class TransformerVAE(nn.Module):
         return feats
 
 
-if __name__ == "__main__":
-    import yaml
-    import os
-    from argparse import Namespace
-
-    def load_checkpoints(model, save_path, load_name='model'):
-        states = torch.load(save_path)
-        new_weights = OrderedDict()
-        flag=False
-        for k, v in states['model_state'].items():
-            #print(k)
-            if "module" not in k:
-                break
-            else:
-                new_weights[k[7:]]=v
-                flag=True
-        if flag: 
-            try:
-                model.load_state_dict(new_weights)
-            except:
-                #print(states['model_state'])
-                model.load_state_dict(states['model_state'])
-        else:
-            model.load_state_dict(states['model_state'])
-        print(f"load self-pretrained checkpoints for {load_name}")
-
-    config_path = "/CT/GestureSynth1/work/GestureGPT/GestureRep/experiments/0903_020101_gesture_lexicon_transformer_vae_upper_allspk_len256_l8h4_fchunksize15/0903_020101_gesture_lexicon_transformer_vae_upper_allspk_len256_l8h4_fchunksize15.yaml"
-    with open(config_path, "r") as f:
-        config = yaml.load(f, Loader=yaml.FullLoader)
-        
-    args = Namespace(**config)
-    checkpoint_path = args.test_ckpt
-    checkpoint_path = os.path.dirname(config_path) + "/" + os.path.basename(checkpoint_path)
-
-    model = TransformerVAE(args).cuda()
-    load_checkpoints(model, checkpoint_path)
-    model.eval()
-
-    features = torch.randn(2, 150, 78).cuda()
-    out = model(features)
-    print(out['rec_pose'].shape, out['poses_feat'].shape, out['rec_dist'])

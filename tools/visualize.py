@@ -10,7 +10,15 @@ from mogen.datasets import build_dataset, build_dataloader
 from mogen.apis import set_random_seed
 import soundfile as sf
 from mmcv.runner import get_dist_info, init_dist
-from mogen.utils import collect_env, str2bool
+from mogen.utils import (
+    collect_env,
+    str2bool,
+    render_smplx_debug_video,
+    render_gt_pred_side_by_side,
+    render_pred_vs_retrieval_side_by_side,
+    smplx_min_vertex_y,
+    smplx_active_anchor,
+)
 from mogen.models.utils import rotation_conversions as rc
 
 from mmcv.runner import load_checkpoint
@@ -31,7 +39,9 @@ def parse_args():
     parser.add_argument("--use_insertion_guidance", help="whether to use insertion guidance to help the inversion/generation process", action="store_true")
     parser.add_argument("--guidance_iters", help="list of number of iterations at each diffusion timestep to use the guidance", type=str, default="all_one")
     parser.add_argument("--guidance_lr", help="learning rate for the guidance", type=float, default=0.1)
-    parser.add_argument("--test_batchsize", help="batch size for testing", type=int, default=32)
+    parser.add_argument("--test_batchsize", help="batch size for testing", type=int, default=1)
+    parser.add_argument("--no_render_video", help="disable mp4 rendering (only save npz)", action="store_true")
+    parser.add_argument("--render_fps", help="fps for rendered mp4s; defaults to 30 (matches the interpolated output)", type=int, default=30)
     # parser.add_argument('--pose_npy', help='output pose sequence file', default=None)
     parser.add_argument("--seed", type=int, default=None, help="random seed")
     parser.add_argument(
@@ -117,11 +127,6 @@ def main():
     cfg.seed = args.seed
     meta["seed"] = args.seed
 
-    # breakpoint()
-    # build the dataloader
-    # cfg.data.train.training_speakers = list(range(1, 31))
-    # cfg.data.train.cache_path = "/CT/GestureSynth1/work/DiscourseAwareGesture/RAGGesture_BEATX/cache/beatx_cache_backup/"
-    # cfg.model.model.retrieval_cfg.lmdb_paths = cfg.model.model.retrieval_cfg.lmdb_paths.replace("_spk2", "")
     
     # breakpoint()
     train_dataset = build_dataset(cfg.data.train)
@@ -448,7 +453,7 @@ def main():
             
 
             os.makedirs(osp.join(exp_dir, gt_sample_name[j]), exist_ok=True)
-            print(f"Processing  {exp_dir} / {gt_sample_name[j]}")
+            print(f"Processing  {exp_dir}/{gt_sample_name[j]}")
             # breakpoint()
             np.savez(osp.join(exp_dir, gt_sample_name[j], "pred_motion.npz"),
                     betas=np.zeros(300,),
@@ -486,9 +491,26 @@ def main():
                 encoding="utf-8",
             ) as f:
                 f.write(gt_text[j])
-            sf.write(
-                osp.join(exp_dir, gt_sample_name[j], "gt_audio.wav"), gt_audio[j], 16000
-            )
+            audio_path = osp.join(exp_dir, gt_sample_name[j], "gt_audio.wav")
+            sf.write(audio_path, gt_audio[j], 16000)
+
+            if not args.no_render_video:
+                try:
+                    render_gt_pred_side_by_side(
+                        smplx_model=test_dataset.smplx,
+                        gt_poses=gt_motion[j],
+                        gt_transl=gt_trans[j],
+                        gt_expressions=gt_facial[j],
+                        pred_poses=pred_motion[j],
+                        pred_transl=pred_trans[j],
+                        pred_expressions=pred_facial[j],
+                        betas=None,
+                        output_path=osp.join(exp_dir, gt_sample_name[j], "gt_vs_pred.mp4"),
+                        fps=args.render_fps,
+                        audio_path=audio_path,
+                    )
+                except Exception as exc:
+                    print(f"[render] gt_vs_pred failed for {gt_sample_name[j]}: {exc}")
             
             if re_dict is None:
                 continue
@@ -540,11 +562,52 @@ def main():
                 gender='neutral',
                 mocap_frame_rate = 30 #self.args.pose_fps ,
             )
-            sf.write(
-                osp.join(exp_dir, gt_sample_name[j], f"retrieval_{k}_audio.wav"),
-                gt_audio[j],
-                16000,
-            )
+            retr_audio_path = osp.join(exp_dir, gt_sample_name[j], f"retrieval_{k}_audio.wav")
+            sf.write(retr_audio_path, gt_audio[j], 16000)
+
+            if not args.no_render_video:
+                # Compute the retrieval clip's character anchor (mean X,
+                # min Y, mean Z over active frames). We'll subtract this
+                # from any reference anchor (GT or pred) and add the delta
+                # to cropped_trans -- that re-positions the retrieval
+                # character at the reference's character location so both
+                # panels auto-frame to the same screen region.
+                try:
+                    retr_anchor = smplx_active_anchor(
+                        test_dataset.smplx,
+                        poses=cropped_motion,
+                        transl=cropped_trans,
+                        expressions=cropped_facial,
+                        betas=None,
+                        active_only=True,
+                    )
+                except Exception as exc:
+                    print(f"[render] retr_anchor failed for {gt_sample_name[j]}: {exc}")
+                    retr_anchor = None
+
+                if retr_anchor is not None:
+                    # Pred (left, blue) vs Retrieval (right, green), both at
+                    # full temporal length. The retrieval panel auto-hides the
+                    # mesh on zero-pose frames so only the inserted snippet is
+                    # visible while the timeline stays in sync with pred.
+                    try:
+                        retr_trans_pred_aligned = cropped_trans # - retr_anchor
+
+                        render_pred_vs_retrieval_side_by_side(
+                            smplx_model=test_dataset.smplx,
+                            pred_poses=pred_motion[j],
+                            pred_transl=pred_trans[j],
+                            pred_expressions=pred_facial[j],
+                            retr_poses=cropped_motion,
+                            retr_transl=retr_trans_pred_aligned,
+                            retr_expressions=cropped_facial,
+                            betas=None,
+                            output_path=osp.join(exp_dir, gt_sample_name[j], "pred_vs_retrieval.mp4"),
+                            fps=args.render_fps,
+                            audio_path=audio_path,
+                        )
+                    except Exception as exc:
+                        print(f"[render] pred_vs_retrieval failed for {gt_sample_name[j]}: {exc}")
 
 if __name__ == "__main__":
     main()

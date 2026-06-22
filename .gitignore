@@ -1,7 +1,7 @@
 __pycache__/*
 
-results/*
 
+experiments/*/
 experiments/*
 
 *.out
@@ -23,3 +23,17 @@ cache/*
 *.env
 
 *.egg-info
+
+tools/train.sh
+tools/visualize.sh
+
+cache/*/
+
+datasets/*/
+results/*/
+
+datasets/beat_english_v2.0.0
+datasets/assets_deps
+
+tools/train.sh
+tools/visualize.sh
