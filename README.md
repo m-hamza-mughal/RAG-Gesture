@@ -1,4 +1,7 @@
-# RAG GESTURE BEATX
+# RAG-GESTURE
+Implementation for Retrieving Semantics from the Deep: an RAG Solution for Gesture Synthesis (CVPR 2025)
+
+[![Project Page](https://img.shields.io/badge/Project-Page-blue)](https://vcai.mpi-inf.mpg.de/projects/RAG-Gesture/)
 
 ![RAG Gesture BEATX](./assets/TEASER.png)
 
